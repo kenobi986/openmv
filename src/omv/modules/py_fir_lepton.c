@@ -465,56 +465,80 @@ mp_obj_t fir_lepton_read_ta() {
     return mp_obj_new_float((fir_lepton_get_temperature() * 0.01f) - 273.15f);
 }
 
+
+// Function to read IR data from the Lepton sensor and return a tuple with the relevant information
 mp_obj_t fir_lepton_read_ir(int w, int h, bool mirror, bool flip, bool transpose, int timeout) {
+    // Get the frame temperature in Kelvin
     int kelvin = fir_lepton_get_temperature();
+
+    // Allocate a new list to store the temperature values
     mp_obj_list_t *list = (mp_obj_list_t *) mp_obj_new_list(w * h, NULL);
+
+    // Get the frame data
     const uint16_t *data = fir_lepton_get_frame(timeout);
+
+    // Initialize min and max temperature values
     float min = +FLT_MAX;
     float max = -FLT_MAX;
+
+    // Create a list to hold the raw 14-bit data
+    mp_obj_list_t *raw_data_list = (mp_obj_list_t *) mp_obj_new_list(w * h, NULL);
+
+    // Get dimensions
     int w_1 = w - 1;
     int h_1 = h - 1;
 
+    // Iterate over each pixel
     for (int y = 0; y < h; y++) {
         int y_dst = flip ? (h_1 - y) : y;
         const uint16_t *raw_row = data + (y * w);
         mp_obj_t *list_row = list->items + (y_dst * w);
         mp_obj_t *t_list_row = list->items + y_dst;
+        mp_obj_t *raw_list_row = raw_data_list->items + (y_dst * w);
 
         for (int x = 0; x < w; x++) {
             int x_dst = mirror ? (w_1 - x) : x;
-            int raw = raw_row[x];
+            int raw = raw_row[x] & 0x3FFF; // Mask to get the lower 14 bits
 
             if (!fir_lepton_rad_en) {
                 raw = (raw - 8192) + kelvin;
             }
 
-            float celcius = (raw * 0.01f) - 273.15f;
+            float celsius = (raw * 0.01f) - 273.15f;
 
-            if (celcius < min) {
-                min = celcius;
+            if (celsius < min) {
+                min = celsius;
             }
 
-            if (celcius > max) {
-                max = celcius;
+            if (celsius > max) {
+                max = celsius;
             }
 
-            mp_obj_t f = mp_obj_new_float(celcius);
+            mp_obj_t f = mp_obj_new_float(celsius);
+            mp_obj_t raw_val = mp_obj_new_int(raw); // Save the raw 14-bit data
 
             if (!transpose) {
                 list_row[x_dst] = f;
+                raw_list_row[x_dst] = raw_val;
             } else {
                 t_list_row[x_dst * h] = f;
+                raw_list_row[x_dst * h] = raw_val;
             }
         }
     }
 
-    mp_obj_t tuple[4];
-    tuple[0] = mp_obj_new_float((kelvin * 0.01f) - 273.15f);
-    tuple[1] = MP_OBJ_FROM_PTR(list);
-    tuple[2] = mp_obj_new_float(min);
-    tuple[3] = mp_obj_new_float(max);
-    return mp_obj_new_tuple(4, tuple);
+    // Prepare the tuple to return
+    mp_obj_t tuple[5];
+    tuple[0] = mp_obj_new_float((kelvin * 0.01f) - 273.15f);  // Frame temperature in Celsius
+    tuple[1] = MP_OBJ_FROM_PTR(list);  // Temperature list
+    tuple[2] = mp_obj_new_float(min);  // Minimum temperature
+    tuple[3] = mp_obj_new_float(max);  // Maximum temperature
+    tuple[4] = MP_OBJ_FROM_PTR(raw_data_list);  // Raw 14-bit data list
+
+    // Return the tuple
+    return mp_obj_new_tuple(5, tuple);
 }
+
 
 void fir_lepton_fill_image(image_t *img, int w, int h, bool auto_range, float min, float max,
                            bool mirror, bool flip, bool transpose, int timeout) {

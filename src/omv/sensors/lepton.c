@@ -32,6 +32,8 @@
 #define LEPTON_SNAPSHOT_RETRY      (3)
 #define LEPTON_SNAPSHOT_TIMEOUT    (10000)
 
+
+
 // Min/Max temperatures in Celsius.
 #define LEPTON_MIN_TEMP_NORM       (-10.0f)
 #define LEPTON_MIN_TEMP_HIGH       (-10.0f)
@@ -84,7 +86,16 @@ static int write_reg(sensor_t *sensor, uint16_t reg_addr, uint16_t reg_data) {
 }
 
 static int set_pixformat(sensor_t *sensor, pixformat_t pixformat) {
-    return ((pixformat != PIXFORMAT_GRAYSCALE) && (pixformat != PIXFORMAT_RGB565)) ? -1 : 0;
+    if ((pixformat != PIXFORMAT_GRAYSCALE) && 
+        (pixformat != PIXFORMAT_RGB565) &&
+        (pixformat != PIXFORMAT_14BIT)) {  // Include 14-bit format
+        return -1;  // Unsupported pixel format
+    }
+
+
+    // Set the sensor's pixel format
+    sensor->pixformat = pixformat;
+    return 0;
 }
 
 static int set_framesize(sensor_t *sensor, framesize_t framesize) {
@@ -364,6 +375,7 @@ static int reset(sensor_t *sensor) {
     return 0;
 }
 
+
 static int snapshot(sensor_t *sensor, image_t *image, uint32_t flags) {
     framebuffer_update_jpeg_buffer();
 
@@ -432,11 +444,10 @@ static int snapshot(sensor_t *sensor, image_t *image, uint32_t flags) {
                     // user window cropping
 
                     // Value is the 14/16-bit value from the FLIR IR camera.
-                    // However, with AGC enabled only the bottom 8-bits are non-zero.
                     int value = row_ptr[fast_floorf(x * scale_inv)];
 
                     if (lepton.measurement_mode) {
-                        // Need to convert 14/16-bits to 8-bits ourselves...
+                        // Convert 14-bit to temperature if necessary
                         if (!lepton.radiometry) {
                             value = (value - 8192) + kelvin;
                         }
@@ -465,6 +476,10 @@ static int snapshot(sensor_t *sensor, image_t *image, uint32_t flags) {
                             IMAGE_PUT_RGB565_PIXEL(image, t_x, t_y, sensor->color_palette[value & 0xFF]);
                             break;
                         }
+                        case PIXFORMAT_14BIT: {
+                            IMAGE_PUT_BINARY_PIXEL(image, t_x, t_y, value);
+                            break;
+                        }
                         default: {
                             break;
                         }
@@ -476,6 +491,7 @@ static int snapshot(sensor_t *sensor, image_t *image, uint32_t flags) {
 
     return 0;
 }
+
 
 int lepton_init(sensor_t *sensor) {
     sensor->reset = reset;
